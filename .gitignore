@@ -1,0 +1,6 @@
+# Nunca commitear credenciales. Este repo es PUBLICO.
+.env
+.env.*
+!.env.example
+*.token
+claude-token*
