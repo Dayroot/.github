@@ -29,6 +29,34 @@ el tag `v1`.
 > agregarlo repo por repo. `secrets: inherit` esta documentado para repos de la
 > misma organizacion, por eso los stubs pasan el secret de forma explicita.
 
+## Distribuir a los demas repos
+
+No hay que ir repo por repo. El script usa la API de GitHub (no clona nada):
+
+```bash
+./scripts/install-workflows.sh --list              # ver repos candidatos
+./scripts/install-workflows.sh --dry-run repo-a    # simular
+./scripts/install-workflows.sh repo-a repo-b       # commit directo a main
+./scripts/install-workflows.sh --pr repo-a         # via PR
+./scripts/install-workflows.sh --all               # todos
+```
+
+Si exportas `CLAUDE_CODE_OAUTH_TOKEN`, ademas crea el secret en cada repo:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-..."
+```
+
+Requisitos previos:
+
+1. `gh` autenticado con scope `workflow` (`gh auth refresh -s workflow`), si no
+   la API rechaza escribir dentro de `.github/workflows/`.
+2. Este repo pusheado y con el tag `v1` creado.
+3. La [GitHub App de Claude](https://github.com/apps/claude) instalada. Se puede
+   instalar en toda la cuenta de una sola vez.
+
+El script es idempotente: si el archivo ya esta igual, lo salta.
+
 ## Versionado
 
 Los stubs apuntan a `@v1`. Para publicar cambios:
