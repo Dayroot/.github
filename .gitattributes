@@ -1,0 +1,4 @@
+# Los workflows los consume un runner Linux: siempre LF.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf

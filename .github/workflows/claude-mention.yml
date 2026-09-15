@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------------------
+# Claude Code (@claude) — WORKFLOW REUTILIZABLE
+#
+# Responde cuando mencionas @claude en un comentario, un issue o un review.
+# No se ejecuta solo: otros repos lo invocan con `uses:`. Ver templates/.
+#
+# OJO: los eventos `issue_comment` e `issues` SIEMPRE ejecutan el workflow
+# que esta en la rama por defecto del repo. Si el stub que lo llama solo vive
+# en una rama de feature, no se disparara nunca.
+# ---------------------------------------------------------------------------
+name: Claude Code (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      trigger_phrase:
+        description: 'Texto que activa a Claude. Debe coincidir con el del action.'
+        type: string
+        default: '@claude'
+      allowed_associations:
+        description: >-
+          Lista separada por comas, SIN espacios, de author_association que pueden
+          invocar a Claude. Vacio = no filtrar aqui (el action igual exige permiso
+          de escritura salvo que uses allowed_non_write_users).
+        type: string
+        default: 'OWNER,MEMBER,COLLABORATOR'
+      prompt:
+        description: 'Prompt fijo. Vacio = Claude obedece lo que diga el comentario.'
+        type: string
+        default: ''
+      model:
+        description: 'Modelo a usar (ej. claude-opus-5). Vacio = el default del action'
+        type: string
+        default: ''
+      extra_claude_args:
+        description: 'Argumentos extra para el CLI (ej. --allowed-tools "Bash(gh pr *)")'
+        type: string
+        default: ''
+      fetch_depth:
+        description: '0 = historial completo (recomendado si Claude va a commitear)'
+        type: number
+        default: 0
+      timeout_minutes:
+        description: 'Corta el job si se pasa de este tiempo (protege tu cuota)'
+        type: number
+        default: 30
+      runs_on:
+        description: 'Runner a usar'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      claude_code_oauth_token:
+        description: 'Token OAuth de Claude Code (claude setup-token)'
+        required: true
+
+jobs:
+  claude:
+    # GitHub no "detecta" menciones: el workflow se dispara con CADA comentario
+    # y este `if` es el que filtra. Es lo que evita quemar minutos y cuota.
+    #
+    # - `github.event.comment` existe en issue_comment y pull_request_review_comment.
+    # - `contains()` NO distingue mayusculas: @Claude y @claude matchean igual.
+    # - El wrapper format(',{0},', ...) evita falsos positivos por subcadena
+    #   (ej. CONTRIBUTOR dentro de FIRST_TIME_CONTRIBUTOR).
+    # - sender.type != 'Bot' corta el bucle infinito si Claude se cita a si mismo.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        (github.event.comment != null &&
+         contains(github.event.comment.body, inputs.trigger_phrase) &&
+         (inputs.allowed_associations == '' ||
+          contains(format(',{0},', inputs.allowed_associations), format(',{0},', github.event.comment.author_association)))) ||
+        (github.event.review != null &&
+         contains(github.event.review.body, inputs.trigger_phrase) &&
+         (inputs.allowed_associations == '' ||
+          contains(format(',{0},', inputs.allowed_associations), format(',{0},', github.event.review.author_association)))) ||
+        (github.event_name == 'issues' &&
+         (contains(github.event.issue.body, inputs.trigger_phrase) ||
+          contains(github.event.issue.title, inputs.trigger_phrase)) &&
+         (inputs.allowed_associations == '' ||
+          contains(format(',{0},', inputs.allowed_associations), format(',{0},', github.event.issue.author_association))))
+      )
+
+    # Si comentas dos veces seguidas, se cancela la corrida anterior.
+    concurrency:
+      group: claude-mention-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    # Un workflow reutilizable solo puede RECORTAR los permisos del que lo
+    # llama, nunca ampliarlos. Este bloque debe estar tambien en el stub que
+    # hace el `uses:` o estos permisos se pierden. Ver templates/.
+    permissions:
+      contents: write        # Claude puede crear ramas y commitear los cambios
+      pull-requests: write   # comentar y actualizar PRs
+      issues: write          # comentar issues
+      id-token: write        # intercambio OIDC con la GitHub App de Claude
+      actions: read          # leer resultados de CI de los PRs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          trigger_phrase: ${{ inputs.trigger_phrase }}
+          prompt: ${{ inputs.prompt }}
+
+          # Deja que Claude lea los logs y resultados de CI del PR
+          additional_permissions: |
+            actions: read
+
+          claude_args: >-
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            ${{ inputs.extra_claude_args }}

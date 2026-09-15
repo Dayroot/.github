@@ -1,0 +1,109 @@
+# ---------------------------------------------------------------------------
+# Claude Code Review — WORKFLOW REUTILIZABLE
+#
+# No se ejecuta solo: otros repos lo invocan con `uses:`. Ver templates/.
+#
+#   jobs:
+#     review:
+#       uses: Dayroot/.github/.github/workflows/claude-code-review.yml@v1
+#       secrets:
+#         claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+# ---------------------------------------------------------------------------
+name: Claude Code Review (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      review_flags:
+        description: 'Flags extra para /code-review:code-review (ej. "high", "--fix")'
+        type: string
+        default: ''
+      model:
+        description: 'Modelo a usar (ej. claude-opus-5). Vacio = el default del action'
+        type: string
+        default: ''
+      extra_claude_args:
+        description: 'Argumentos extra para el CLI (ej. --max-turns 30)'
+        type: string
+        default: ''
+      track_progress:
+        description: 'Publica un comentario con el progreso del review en el PR'
+        type: boolean
+        default: false
+      skip_drafts:
+        description: 'No revisar PRs en borrador'
+        type: boolean
+        default: true
+      skip_bots:
+        description: 'No revisar PRs abiertos por bots (dependabot, renovate, ...)'
+        type: boolean
+        default: true
+      skip_phrase:
+        description: 'Si el titulo del PR contiene esto, se omite el review'
+        type: string
+        default: '[skip-review]'
+      fetch_depth:
+        description: '0 = historial completo (necesario para diffs con git). 1 = mas rapido'
+        type: number
+        default: 0
+      timeout_minutes:
+        description: 'Corta el job si se pasa de este tiempo (protege tu cuota)'
+        type: number
+        default: 20
+      runs_on:
+        description: 'Runner a usar'
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      claude_code_oauth_token:
+        description: 'Token OAuth de Claude Code (claude setup-token)'
+        required: true
+
+jobs:
+  claude-review:
+    # Cada push nuevo al PR cancela el review anterior: no pagas reviews obsoletos.
+    concurrency:
+      group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    # `contains()` en expresiones de GitHub NO distingue mayusculas/minusculas.
+    if: >-
+      github.event.pull_request != null &&
+      (!inputs.skip_drafts || !github.event.pull_request.draft) &&
+      (!inputs.skip_bots || github.event.pull_request.user.type != 'Bot') &&
+      (inputs.skip_phrase == '' || !contains(github.event.pull_request.title, inputs.skip_phrase))
+
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    # Un workflow reutilizable solo puede RECORTAR los permisos del que lo
+    # llama, nunca ampliarlos. Este bloque debe estar tambien en el stub que
+    # hace el `uses:` o estos permisos se pierden. Ver templates/.
+    permissions:
+      contents: read
+      pull-requests: write   # publicar los comentarios inline del review
+      issues: write          # el comentario de progreso (track_progress)
+      id-token: write        # intercambio OIDC con la GitHub App de Claude
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          track_progress: ${{ inputs.track_progress }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: >-
+            /code-review:code-review --comment
+            ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            ${{ inputs.review_flags }}
+          claude_args: >-
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            ${{ inputs.extra_claude_args }}

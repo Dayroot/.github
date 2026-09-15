@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# Copiar a: .github/workflows/claude-code-review.yml del repo destino.
+#
+# Requisito: el secret CLAUDE_CODE_OAUTH_TOKEN en ese repo
+# (Settings -> Secrets and variables -> Actions).
+#
+# Que hace: revisa AUTOMATICAMENTE cada PR. No requiere mencionar a nadie.
+# ---------------------------------------------------------------------------
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+    # Opcional: revisar solo si cambian ciertos archivos.
+    # paths:
+    #   - "src/**/*.ts"
+    #   - "src/**/*.tsx"
+
+    # Opcional: revisar solo PRs hacia estas ramas.
+    # branches: [main, develop]
+
+jobs:
+  review:
+    # Los permisos se declaran ACA. Un workflow reutilizable solo puede recortar
+    # los permisos del que lo llama, nunca ampliarlos: si este bloque falta, el
+    # job hereda el default del repo (normalmente solo lectura) y Claude no
+    # podra publicar los comentarios del review.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    uses: Dayroot/.github/.github/workflows/claude-code-review.yml@v1
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    # with:
+    #   review_flags: 'high'          # profundidad del review
+    #   model: 'claude-opus-5'
+    #   track_progress: true          # comentario con el progreso en el PR
+    #   skip_drafts: true
+    #   skip_bots: true
+    #   skip_phrase: '[skip-review]'  # en el titulo del PR
+    #   timeout_minutes: 20
