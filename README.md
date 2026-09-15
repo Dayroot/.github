@@ -41,11 +41,15 @@ No hay que ir repo por repo. El script usa la API de GitHub (no clona nada):
 ./scripts/install-workflows.sh --all               # todos
 ```
 
-Si exportas `CLAUDE_CODE_OAUTH_TOKEN`, ademas crea el secret en cada repo:
+Si exportas `CLAUDE_CODE_OAUTH_TOKEN`, ademas crea el secret en cada repo. Para
+crear solo el secret, sin volver a tocar los archivos:
 
 ```bash
-export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-..."
+read -rsp 'Token: ' CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN
+./scripts/install-workflows.sh --secrets-only --all
 ```
+
+`read -rs` evita que el token quede en el historial del shell.
 
 Requisitos previos:
 

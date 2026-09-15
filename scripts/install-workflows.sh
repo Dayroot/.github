@@ -8,6 +8,7 @@
 #   ./scripts/install-workflows.sh repo-a repo-b        # commit directo a main
 #   ./scripts/install-workflows.sh --pr repo-a          # via PR en vez de commit
 #   ./scripts/install-workflows.sh --all                # todos los candidatos
+#   ./scripts/install-workflows.sh --secrets-only --all # solo crear el secret
 #
 # Con CLAUDE_CODE_OAUTH_TOKEN exportado, tambien crea el secret en cada repo:
 #   export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-..."
@@ -20,6 +21,7 @@ set -euo pipefail
 OWNER="${OWNER:-Dayroot}"
 DRY_RUN=false
 VIA_PR=false
+SECRETS_ONLY=false
 REPOS=()
 
 # stub local  ->  ruta destino en el repo consumidor
@@ -105,9 +107,11 @@ install_repo() {
       || log "  (la rama $branch ya existia)"
   fi
 
-  for src in "${!FILES[@]}"; do
-    if put_file "$repo" "${FILES[$src]}" "$src" "$branch"; then wrote=true; fi
-  done
+  if ! $SECRETS_ONLY; then
+    for src in "${!FILES[@]}"; do
+      if put_file "$repo" "${FILES[$src]}" "$src" "$branch"; then wrote=true; fi
+    done
+  fi
 
   set_secret "$repo"
 
@@ -124,7 +128,8 @@ esten en la rama por defecto." 2>/dev/null || log "  (el PR ya existia)"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dry-run) DRY_RUN=true ;;
+    --dry-run)      DRY_RUN=true ;;
+    --secrets-only) SECRETS_ONLY=true ;;
     --pr)      VIA_PR=true ;;
     --list)    list_candidates; exit 0 ;;
     --all)     mapfile -t REPOS < <(list_candidates) ;;
@@ -140,8 +145,14 @@ if [ ${#REPOS[@]} -eq 0 ]; then
 fi
 
 $DRY_RUN && log "*** DRY RUN: no se escribe nada ***"
-[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && \
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  if $SECRETS_ONLY; then
+    echo "error: --secrets-only necesita CLAUDE_CODE_OAUTH_TOKEN exportado." >&2
+    echo "       read -rsp 'Token: ' CLAUDE_CODE_OAUTH_TOKEN; export CLAUDE_CODE_OAUTH_TOKEN" >&2
+    exit 1
+  fi
   warn "CLAUDE_CODE_OAUTH_TOKEN no esta exportado: se omite la creacion del secret"
+fi
 
 for repo in "${REPOS[@]}"; do install_repo "$repo"; done
 
